@@ -338,8 +338,56 @@ export function registerGateDispatcher(pluginInput: { directory: string; worktre
   };
 }
 
-/** Default export — what opencode's `.opencode/plugin/*.ts` auto-discovery (or an explicit `plugin` config entry) loads. */
-const apexyardGateDispatcher: Plugin = async (input) => registerGateDispatcher(input);
+/** V1 default export — kept for tests and harnesses still on opencode 1.x. */
+export const apexyardGateDispatcher: Plugin = async (input) => registerGateDispatcher(input);
 
-export default apexyardGateDispatcher;
-export { apexyardGateDispatcher };
+/**
+ * V2 default export (opencode 2.x, GH-1). opencode 2.x rejects the V1
+ * plugin-factory shape ("Plugin must export a default definition with an id
+ * and an effect or setup function"), so the default export is now a V2
+ * definition `{ id, setup(ctx) }` registering the same dispatcher through
+ * `ctx.tool.hook("execute.before", ...)`: same deny contract (throw), same
+ * event fields (`event.tool`, `event.input`), adapted onto the V1 handler's
+ * `(input, output)` pair so all dispatcher logic stays unchanged.
+ *
+ * A plain object is used instead of `Plugin.define` from `@opencode/plugin`
+ * because a local (non-package) plugin directory has no node_modules to
+ * resolve that import from; the loader only needs `{ id, setup }`.
+ */
+const apexyardGateDispatcherV2 = {
+  id: "apexyard.gates",
+  async setup(ctx: {
+    location?: { directory?: string };
+    tool?: { hook?: (name: string, cb: (event: unknown) => unknown) => Promise<unknown> };
+  }) {
+    const directory = ctx?.location?.directory ?? process.cwd();
+    const hooks = registerGateDispatcher({ directory, worktree: directory });
+    const v1Handler = hooks["tool.execute.before"];
+    if (!ctx?.tool || typeof ctx.tool.hook !== "function" || !v1Handler) {
+      process.stderr.write(
+        "apexyard gate dispatcher: WARNING — opencode V2 plugin context has no ctx.tool.hook; " +
+          "NO governance gates are enforced this session.\n",
+      );
+      return;
+    }
+    try {
+      await ctx.tool.hook("execute.before", (event: unknown) => {
+        const e = event as { tool?: string; input?: Record<string, unknown>; sessionID?: string };
+        // Adapt the V2 flat event onto the V1 handler's (input, output) pair.
+        // `output.args` IS `event.input` (same reference), so the V1
+        // handler's session-env mutation of `args.command` propagates to the
+        // real tool input. Throwing inside the hook denies the tool call —
+        // the same contract the V1 handler already implements.
+        return v1Handler({ tool: e.tool, sessionID: e.sessionID }, { args: e.input });
+      });
+    } catch (err) {
+      process.stderr.write(
+        "apexyard gate dispatcher: WARNING — failed to register tool.execute.before hook; " +
+          "NO governance gates are enforced this session. Underlying error: " +
+          `${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  },
+};
+
+export default apexyardGateDispatcherV2;
