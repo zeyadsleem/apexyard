@@ -98,16 +98,37 @@ const mod = await import(pathToFileURL(entryPath).href);
 
 const keys = Object.keys(mod).sort();
 console.log("EXPORT_KEYS:" + JSON.stringify(keys));
-console.log("DEFAULT_IS_FUNCTION:" + (typeof mod.default === "function"));
 
-// Call it the way opencode calls a plugin factory: once, with PluginInput.
-const hooks = await mod.default({ directory: opsRoot, worktree: opsRoot });
-console.log("HOOKS_KEYS:" + JSON.stringify(Object.keys(hooks).sort()));
-console.log("HAS_TOOL_EXECUTE_BEFORE:" + (typeof hooks["tool.execute.before"] === "function"));
+// opencode 2.x plugin shape (GH-1): the default export is a `{ id, setup }`
+// module (not the V1 factory function). opencode calls `setup(ctx)` with a
+// context object; the plugin registers its tool hooks via `ctx.tool.hook`.
+// The stub below plays opencode's part: it captures the registered hook
+// names and hands back a callable for "execute.before".
+const plugin = mod.default;
+console.log("IS_V2_SHAPE:" + (typeof plugin === "object" && plugin !== null && typeof plugin.setup === "function" && typeof plugin.id === "string"));
+
+const registered = {};
+const fakeCtx = {
+  location: { directory: opsRoot },
+  tool: {
+    hook: async (name, cb) => {
+      registered[name] = cb;
+    },
+  },
+};
+await plugin.setup(fakeCtx);
+console.log("REGISTERED_HOOKS:" + JSON.stringify(Object.keys(registered).sort()));
+console.log("HAS_EXECUTE_BEFORE:" + (typeof registered["execute.before"] === "function"));
+
+// Drive the registered hook once the way opencode would (a benign bash
+// call): with the fixture ops root there is no settings.json, so gate
+// derivation is the documented silent empty table and the call resolves.
+await registered["execute.before"]({ tool: "bash", sessionID: "smoke", input: { command: "echo hello" } });
+console.log("EXECUTE_BEFORE_RESOLVES:true");
 RUNNER_EOF
 
 echo ""
-echo "== Check 3: dynamic import + factory call against the installed apexyard/index.ts =="
+echo "== Check 3: dynamic import + V2 setup() call against the installed apexyard/index.ts =="
 # opencode resolves the ops root at plugin-call time (unlike pi, which
 # defers to per-tool_call resolution — see gate-dispatcher.ts's header
 # comment), so this MUST run hermetically: an ambient APEXYARD_OPS_ROOT
@@ -122,18 +143,22 @@ if ! echo "$OUTPUT" | grep -q '^EXPORT_KEYS:\["default"\]$'; then
   echo "FAIL: expected apexyard/index.ts's module namespace to be exactly [\"default\"] — opencode's real loader invokes EVERY exported function as a candidate plugin, so a leaked named export here is exactly the #844 crash mechanism" >&2
   FAIL=1
 fi
-if ! echo "$OUTPUT" | grep -q '^DEFAULT_IS_FUNCTION:true$'; then
-  echo "FAIL: expected the default export to be a function" >&2
+if ! echo "$OUTPUT" | grep -q '^IS_V2_SHAPE:true$'; then
+  echo "FAIL: expected the default export to be the opencode V2 plugin module ({ id, setup })" >&2
   FAIL=1
 fi
-if ! echo "$OUTPUT" | grep -q '^HAS_TOOL_EXECUTE_BEFORE:true$'; then
-  echo "FAIL: expected calling the default export to resolve to a Hooks object with a working tool.execute.before handler" >&2
+if ! echo "$OUTPUT" | grep -q '^HAS_EXECUTE_BEFORE:true$'; then
+  echo "FAIL: expected setup() to register a working execute.before hook via ctx.tool.hook" >&2
+  FAIL=1
+fi
+if ! echo "$OUTPUT" | grep -q '^EXECUTE_BEFORE_RESOLVES:true$'; then
+  echo "FAIL: expected driving the registered execute.before hook with a benign bash call to resolve (gate derivation on a settings-less fixture ops root is the silent empty table)" >&2
   FAIL=1
 fi
 
 echo ""
 if [ "$FAIL" -eq 0 ]; then
-  echo "PASS: the real, shipped install layout (bin/install-opencode-adapter.sh's output) loads cleanly — no top-level helper files in the discovery dir, and apexyard/index.ts exports only a working default plugin factory."
+  echo "PASS: the real, shipped install layout (bin/install-opencode-adapter.sh's output) loads cleanly — no top-level helper files in the discovery dir, and apexyard/index.ts exports only the working V2 default plugin module."
   exit 0
 fi
 exit 1

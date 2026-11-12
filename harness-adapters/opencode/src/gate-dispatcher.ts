@@ -67,7 +67,6 @@ import type { Hooks, Plugin } from "@opencode-ai/plugin";
 import {
   buildToolInput,
   claudeToolNameFor,
-  deriveGatesFromDispatcher,
   deriveGatesFromSettings,
   findUnsupportedGateWires,
   gateMatchesToolCall,
@@ -290,10 +289,17 @@ export function deriveGatesFromOpsRoot(opsRoot: string, settingsRelativePath: st
   if (!existsSync(settingsPath)) return [];
   try {
     const raw = JSON.parse(readFileSync(settingsPath, "utf-8")) as RawSettings;
-    const dispatcherPath = path.join(opsRoot, ".claude/hooks/dispatch-bash.sh");
-    const dispatcher = existsSync(dispatcherPath) ? deriveGatesFromDispatcher(readFileSync(dispatcherPath, "utf-8")) : [];
-    const settingsGates = deriveGatesFromSettings(raw).filter((gate) => gate.hookRelativePath !== ".claude/hooks/dispatch-bash.sh");
-    return [...settingsGates, ...dispatcher];
+    // dispatch-bash.sh is wired to the Bash matcher in settings.json but runs
+    // INSIDE Claude Code for every Bash call, scanning the WHOLE command for
+    // push/commit shapes anywhere in compound commands (`x && git push`,
+    // `x; git push`, pipelines, subshells — #1527/#1780). Running its
+    // dispatcher-derived start-anchored marker gates instead lost that
+    // whole-command coverage (a compound `git push` slipped through), so the
+    // adapter now keeps dispatch-bash.sh itself as an unconditional bash gate
+    // and drops the marker-derived gates (they would only double-run the
+    // same hooks dispatch-bash.sh already routes to).
+    const settingsGates = deriveGatesFromSettings(raw).map((gate) => (gate.hookRelativePath === ".claude/hooks/dispatch-bash.sh" ? { ...gate, wires: [{ tool: "bash" as const, commandGlob: null }] } : gate));
+    return [...settingsGates];
   } catch (err) {
     process.stderr.write(
       `apexyard gate dispatcher: WARNING — failed to parse ${settingsPath}; NO gates are enforced this session. ` +
@@ -338,8 +344,61 @@ export function registerGateDispatcher(pluginInput: { directory: string; worktre
   };
 }
 
-/** Default export — what opencode's `.opencode/plugin/*.ts` auto-discovery (or an explicit `plugin` config entry) loads. */
-const apexyardGateDispatcher: Plugin = async (input) => registerGateDispatcher(input);
+/** V1 default export — kept for tests and harnesses still on opencode 1.x. */
+export const apexyardGateDispatcher: Plugin = async (input) => registerGateDispatcher(input);
 
-export default apexyardGateDispatcher;
-export { apexyardGateDispatcher };
+/**
+ * V2 default export (opencode 2.x, GH-1). opencode 2.x rejects the V1
+ * plugin-factory shape ("Plugin must export a default definition with an id
+ * and an effect or setup function"), so the default export is now a V2
+ * definition `{ id, setup(ctx) }` registering the same dispatcher through
+ * `ctx.tool.hook("execute.before", ...)`: same deny contract (throw), same
+ * event fields (`event.tool`, `event.input`), adapted onto the V1 handler's
+ * `(input, output)` pair so all dispatcher logic stays unchanged.
+ *
+ * A plain object is used instead of `Plugin.define` from `@opencode/plugin`
+ * because a local (non-package) plugin directory has no node_modules to
+ * resolve that import from; the loader only needs `{ id, setup }`.
+ */
+const apexyardGateDispatcherV2 = {
+  id: "apexyard.gates",
+  async setup(ctx: {
+    location?: { directory?: string };
+    tool?: { hook?: (name: string, cb: (event: unknown) => unknown) => Promise<unknown> };
+  }) {
+    const directory = ctx?.location?.directory ?? process.cwd();
+    const hooks = registerGateDispatcher({ directory, worktree: directory });
+    const v1Handler = hooks["tool.execute.before"];
+    if (!ctx?.tool || typeof ctx.tool.hook !== "function" || !v1Handler) {
+      process.stderr.write(
+        "apexyard gate dispatcher: WARNING — opencode V2 plugin context has no ctx.tool.hook; " +
+          "NO governance gates are enforced this session.\n",
+      );
+      return;
+    }
+    try {
+      await ctx.tool.hook("execute.before", (event: unknown) => {
+        const e = event as { tool?: string; callID?: string; input?: Record<string, unknown>; sessionID?: string };
+        // A tool event without a tool name, call id, or session id can't be
+        // gate-matched or session-env-stamped meaningfully — skip enforcement
+        // for it rather than risk a false block (the plugin's
+        // fail-toward-not-enforcing rule).
+        if (typeof e.tool !== "string" || typeof e.callID !== "string" || typeof e.sessionID !== "string") return;
+        // Adapt the V2 flat event onto the V1 handler's (input, output) pair.
+        // `output.args` IS `event.input` (same reference), so the V1
+        // handler's session-env mutation of `args.command` propagates to the
+        // real tool input. Throwing inside the hook denies the tool call —
+        // the same contract the V1 handler already implements.
+        return v1Handler({ tool: e.tool, callID: e.callID, sessionID: e.sessionID }, { args: e.input });
+      });
+    } catch (err) {
+      process.stderr.write(
+        "apexyard gate dispatcher: WARNING — failed to register tool.execute.before hook; " +
+          "NO governance gates are enforced this session. Underlying error: " +
+          `${err instanceof Error ? err.message : String(err)}\n`,
+      );
+    }
+  },
+};
+
+export default apexyardGateDispatcherV2;

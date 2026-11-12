@@ -1,0 +1,10 @@
+version: 1
+
+projects: []
+
+defaults:
+  status: active
+  tier: P1
+  ticket_prefix: GH
+  roles:
+    - tech-lead
