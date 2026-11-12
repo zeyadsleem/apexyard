@@ -17,7 +17,8 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
@@ -28,7 +29,7 @@ import {
   deriveGatesFromOpsRoot,
   type ExecGateHook,
 } from "../src/gate-dispatcher.ts";
-import type { GateDefinition } from "../src/derive-gates.ts";
+import { gateMatchesToolCall, type GateDefinition } from "../src/derive-gates.ts";
 
 const OPS_ROOT = "/fixture/ops-root"; // never touched — existsSync short-circuits before any real exec in the "hook not found" cases; mocked exec never inspects the filesystem either
 
@@ -322,4 +323,40 @@ test("deriveGatesFromOpsRoot: a missing settings.json is silent (the expected \"
 
   assert.deepEqual(gates, []);
   assert.equal(combined, "", "a missing file is not a parse failure — warning here would be noise for every non-apexyard session");
+});
+
+// ---------------------------------------------------------------------
+// dispatch-bash.sh stays in the derived table as an UNCONDITIONAL bash
+// gate (GH-1 regression). Claude Code runs dispatch-bash.sh for EVERY
+// Bash call, and its internal whole-command scan (#1527/#1780) catches
+// push/commit shapes anywhere in compound commands (`x && git push`,
+// pipelines, subshells). The adapter previously dropped dispatch-bash.sh
+// and substituted the START-anchored `# APEXYARD_DISPATCH_GATE` marker
+// globs parsed out of it — a compound `git status && git push` sailed
+// straight past those. Keeping the dispatcher itself wired
+// unconditionally restores Claude Code parity; the marker-derived gates
+// are dropped so no hook double-runs per call.
+// ---------------------------------------------------------------------
+
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+
+test("deriveGatesFromOpsRoot: dispatch-bash.sh is kept as an unconditional bash gate, and no dispatcher-marker-derived gates remain", () => {
+  const gates = deriveGatesFromOpsRoot(REPO_ROOT, ".claude/settings.json");
+
+  const dispatcherGate = gates.find((g) => g.hookRelativePath === ".claude/hooks/dispatch-bash.sh");
+  assert.ok(dispatcherGate, "dispatch-bash.sh itself must remain in the gate table");
+  assert.deepEqual(dispatcherGate.wires, [{ tool: "bash", commandGlob: null }]);
+
+  assert.deepEqual(
+    gates.filter((g) => g.hookRelativePath === ".claude/hooks/block-main-push.sh"),
+    [],
+    "dispatcher-marker-derived gates must be dropped — the dispatcher's own scan already routes block-main-push.sh",
+  );
+});
+
+test("deriveGatesFromOpsRoot: a compound `x && git push` bash call still matches a derived gate (GH-1 regression)", () => {
+  const gates = deriveGatesFromOpsRoot(REPO_ROOT, ".claude/settings.json");
+
+  const matched = gates.some((g) => gateMatchesToolCall(g, "bash", "git status -sb && git push origin main 2>&1 | head -3"));
+  assert.ok(matched, "the compound-command push shape must reach dispatch-bash.sh via its unconditional wire");
 });
