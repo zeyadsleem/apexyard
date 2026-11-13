@@ -1,6 +1,11 @@
 version: 1
 
-projects: []
+projects:
+  - name: arabic-grasshopper
+    repo: zeyadsleem/arabic-grasshopper
+    docs: projects/arabic-grasshopper
+    workspace: workspace/arabic-grasshopper
+    status: active
 
 defaults:
   status: active
