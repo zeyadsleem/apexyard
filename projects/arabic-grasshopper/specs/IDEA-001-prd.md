@@ -149,6 +149,10 @@ Google Grasshopper taught programming to beginners through short interactive puz
 | Privacy | No personal data collection at launch; suitable for children | Aggregate events only |
 | Availability | Cloudflare Pages free tier | ≥ 99.9% platform availability |
 
+### Future (P2)
+
+- **WebMCP compatibility**: the app exposes a small set of MCP tools (for example: list modules, get lesson state, submit a puzzle attempt) so AI agents can drive and verify lessons programmatically. Added by owner request on 2026-11-13. Not part of the first release; a later release defines the tool surface, and the same privacy rules (no personal data) apply.
+
 ---
 
 ## Design
