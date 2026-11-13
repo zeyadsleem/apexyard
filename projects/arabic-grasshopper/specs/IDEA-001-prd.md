@@ -132,7 +132,7 @@ Google Grasshopper taught programming to beginners through short interactive puz
 | FR-7 | Star rewards and module progress display | Must | |
 | FR-8 | Kid-oriented editing protections: Arabic-character-in-code detection, stable editor layout | Must | |
 | FR-9 | Structured content format so new modules are added as data files without engine changes | Must | Content authoring is the main ongoing cost; format must be simple for a solo author |
-| FR-10 | Aggregate, privacy-friendly analytics (no personal data, no cookies beyond a pseudonymous event id) | Should | Needed to measure success metrics and kill criteria |
+| FR-10 | Aggregate, privacy-friendly analytics (no personal data, no cookies beyond a pseudonymous event id) | Must | Elevated to Must at architecture review (2026-11-13): the pinned kill criteria (100 MAU / 10% completion at day 90) are measured only through this data; without analytics the park decision cannot be evaluated |
 | FR-11 | Installable as a PWA (add to home screen) | Should | Cheap win on mobile-first web |
 | FR-12 | Optional progress export/import as a file | Could | Protects against storage clearing |
 
