@@ -104,9 +104,9 @@ Google Grasshopper taught programming to beginners through short interactive puz
 
 - [ ] Each puzzle awards a star on first-try success and a star with hints on later success.
 - [ ] The module screen shows total stars earned.
-- [ ] The course screen shows the current streak and today's daily-goal progress at all times.
+- [ ] The module screen shows the current streak and today's daily-goal progress without scrolling on a phone-sized screen.
 - [ ] A streak survives one missed day, so a single off day does not erase the child's progress.
-- [ ] A daily goal never gates a lesson: the child can keep playing after meeting it, and can play on without setting one.
+- [ ] A daily goal never gates a lesson: playing on after meeting it is allowed, and a child who sets no goal can still open any unlocked lesson.
 
 ### Edge Cases
 
