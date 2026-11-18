@@ -3,7 +3,7 @@
 **Status**: In Review
 **Author**: Mariam (Product Manager)
 **Created**: 2026-11-12
-**Last Updated**: 2026-11-13
+**Last Updated**: 2026-11-18
 
 ---
 
@@ -98,12 +98,15 @@ Google Grasshopper taught programming to beginners through short interactive puz
 
 ### US-5: Stay motivated
 >
-> As a child, I want stars and visible progress, so that finishing lessons feels rewarding.
+> As a child, I want stars, visible progress, and a reason to come back tomorrow, so that finishing lessons feels rewarding and does not stop after one day.
 
 **Acceptance Criteria**:
 
 - [ ] Each puzzle awards a star on first-try success and a star with hints on later success.
 - [ ] The module screen shows total stars earned.
+- [ ] The course screen shows the current streak and today's daily-goal progress at all times.
+- [ ] A streak survives one missed day, so a single off day does not erase the child's progress.
+- [ ] A daily goal never gates a lesson: the child can keep playing after meeting it, and can play on without setting one.
 
 ### Edge Cases
 
@@ -114,6 +117,7 @@ Google Grasshopper taught programming to beginners through short interactive puz
 | JavaScript sandbox fails to run code | App shows a plain Arabic error message and a retry option |
 | Very long or malformed code | Editor keeps layout stable; parser error shows the line in Arabic |
 | Slow connection on a low-end phone | First screen loads under 3 seconds on a 3G-class connection |
+| Child changes the device clock or timezone | Streak does not decrement or double-count a day; a past-dated day is treated as already counted, and the streak recovers on the next real day |
 
 ---
 
@@ -135,6 +139,7 @@ Google Grasshopper taught programming to beginners through short interactive puz
 | FR-10 | Aggregate, privacy-friendly analytics (no personal data, no cookies beyond a pseudonymous event id) | Must | Elevated to Must at architecture review (2026-11-13): the pinned kill criteria (100 MAU / 10% completion at day 90) are measured only through this data; without analytics the park decision cannot be evaluated |
 | FR-11 | Installable as a PWA (add to home screen) | Should | Cheap win on mobile-first web |
 | FR-12 | Optional progress export/import as a file | Could | Protects against storage clearing |
+| FR-13 | Daily goal and a forgiving streak tracked on the local calendar day | Must | Added 2026-11-18 at M2 planning: the 7-day return target (≥ 15%) had no specified retention mechanism. Points were considered and deferred — a score with no sink adds no value in a free, non-social product |
 
 **Priority Key**: Must (required for launch) | Should (important) | Could (nice to have)
 
